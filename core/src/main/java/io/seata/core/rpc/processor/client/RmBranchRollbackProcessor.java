@@ -47,7 +47,7 @@ public class RmBranchRollbackProcessor implements RemotingProcessor {
         this.handler = handler;
         this.remotingClient = remotingClient;
     }
-
+    //TC 发回滚时候的client端
     @Override
     public void process(ChannelHandlerContext ctx, RpcMessage rpcMessage) throws Exception {
         String remoteAddress = NetUtil.toStringAddress(ctx.channel().remoteAddress());

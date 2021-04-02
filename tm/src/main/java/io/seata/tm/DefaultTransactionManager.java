@@ -50,10 +50,12 @@ public class DefaultTransactionManager implements TransactionManager {
         GlobalBeginRequest request = new GlobalBeginRequest();
         request.setTransactionName(name);
         request.setTimeout(timeout);
+        //RPC请求 通知TC开启全局事务
         GlobalBeginResponse response = (GlobalBeginResponse) syncCall(request);
         if (response.getResultCode() == ResultCode.Failed) {
             throw new TmTransactionException(TransactionExceptionCode.BeginFailed, response.getMsg());
         }
+        //将TC端下发的XID进行返回
         return response.getXid();
     }
 
@@ -65,6 +67,12 @@ public class DefaultTransactionManager implements TransactionManager {
         return response.getGlobalStatus();
     }
 
+    /**
+     * 通知TC 需要进行全局回滚
+     * @param xid XID of the global transaction
+     * @return
+     * @throws TransactionException
+     */
     @Override
     public GlobalStatus rollback(String xid) throws TransactionException {
         GlobalRollbackRequest globalRollback = new GlobalRollbackRequest();

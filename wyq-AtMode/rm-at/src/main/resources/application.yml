@@ -1,0 +1,37 @@
+server:
+  port: 7900
+  tomcat.uri-encoding: utf-8
+
+spring:
+  application:
+    name: rm-at
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://47.94.166.93:3306/seata_tcc?useUnicode=true&characterEncoding=utf-8&useSSL=false
+    username: root
+    password: hello123
+    type: com.alibaba.druid.pool.DruidDataSource
+  cloud:
+    nacos:
+      discovery:
+        server-addr: 47.94.166.93:8848
+        namespace: public
+        username: nacos
+        password: nacos
+
+seata:
+  enabled: true
+  application-id: ${spring.application.name}
+  tx-service-group: seata-demo
+  service:
+    vgroup-mapping:
+      seata-demo: default
+  registry:
+    type: nacos
+    nacos:
+      cluster: default
+      group: SEATA_GROUP
+      server-addr: 47.94.166.93:8848
+      namespace: public
+      username : nacos
+      password : nacos

@@ -49,6 +49,9 @@ public class SeataDataSourceBeanPostProcessor implements BeanPostProcessor {
         return bean;
     }
 
+    /**
+     * BEAN 初始化后 对每一个BEAN进行加强
+     */
     @Override
     public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException {
         if (bean instanceof DataSource) {

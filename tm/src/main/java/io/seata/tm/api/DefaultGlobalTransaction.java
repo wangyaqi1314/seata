@@ -89,6 +89,9 @@ public class DefaultGlobalTransaction implements GlobalTransaction {
 
     @Override
     public void begin(int timeout, String name) throws TransactionException {
+        /**
+         * 如果角色是参与者就进行退出...继续执行
+         */
         if (role != GlobalTransactionRole.Launcher) {
             assertXIDNotNull();
             if (LOGGER.isDebugEnabled()) {
@@ -96,14 +99,17 @@ public class DefaultGlobalTransaction implements GlobalTransaction {
             }
             return;
         }
+        //TM发起全局事务 if XID是空就抛异常 因为XID是TC端进行下发
         assertXIDNull();
         String currentXid = RootContext.getXID();
         if (currentXid != null) {
             throw new IllegalStateException("Global transaction already exists," +
                 " can't begin a new global transaction, currentXid = " + currentXid);
         }
+        //RPC调用TC 开启全局事务
         xid = transactionManager.begin(null, null, name, timeout);
         status = GlobalStatus.Begin;
+        //将XID绑定到上下文当中
         RootContext.bind(xid);
         if (LOGGER.isInfoEnabled()) {
             LOGGER.info("Begin new global transaction [{}]", xid);
@@ -112,6 +118,7 @@ public class DefaultGlobalTransaction implements GlobalTransaction {
 
     @Override
     public void commit() throws TransactionException {
+        //如果是RM，不进行事务的提交 ，等待TC下发通知 进行提交
         if (role == GlobalTransactionRole.Participant) {
             // Participant has no responsibility of committing
             if (LOGGER.isDebugEnabled()) {
@@ -119,11 +126,14 @@ public class DefaultGlobalTransaction implements GlobalTransaction {
             }
             return;
         }
+        //提交时候XID为空 就throw
         assertXIDNotNull();
+        //TM 提交重试的次数 默认为5次
         int retry = COMMIT_RETRY_COUNT <= 0 ? DEFAULT_TM_COMMIT_RETRY_COUNT : COMMIT_RETRY_COUNT;
         try {
             while (retry > 0) {
                 try {
+                    //RPC TM 通知 TC 正常提交
                     status = transactionManager.commit(xid);
                     break;
                 } catch (Throwable ex) {
@@ -135,6 +145,7 @@ public class DefaultGlobalTransaction implements GlobalTransaction {
                 }
             }
         } finally {
+            //进行解绑 XID
             if (xid.equals(RootContext.getXID())) {
                 suspend();
             }
@@ -146,6 +157,7 @@ public class DefaultGlobalTransaction implements GlobalTransaction {
 
     @Override
     public void rollback() throws TransactionException {
+        //如果是参与者就进行跳出，参与者不回滚，只等待被TC通知回滚
         if (role == GlobalTransactionRole.Participant) {
             // Participant has no responsibility of rollback
             if (LOGGER.isDebugEnabled()) {
@@ -159,6 +171,9 @@ public class DefaultGlobalTransaction implements GlobalTransaction {
         try {
             while (retry > 0) {
                 try {
+                    /**
+                     * 下发TC滚回
+                     */
                     status = transactionManager.rollback(xid);
                     break;
                 } catch (Throwable ex) {
@@ -170,6 +185,9 @@ public class DefaultGlobalTransaction implements GlobalTransaction {
                 }
             }
         } finally {
+            /**
+             * 释放XID
+             */
             if (xid.equals(RootContext.getXID())) {
                 suspend();
             }

@@ -133,7 +133,7 @@ public class GlobalTransactionalInterceptor implements ConfigurationChangeListen
         }
         this.initDefaultGlobalTransactionTimeout();
     }
-
+    //全局异常注解拦截器
     @Override
     public Object invoke(final MethodInvocation methodInvocation) throws Throwable {
         Class<?> targetClass =
@@ -144,9 +144,11 @@ public class GlobalTransactionalInterceptor implements ConfigurationChangeListen
             final GlobalTransactional globalTransactionalAnnotation =
                 getAnnotation(method, targetClass, GlobalTransactional.class);
             final GlobalLock globalLockAnnotation = getAnnotation(method, targetClass, GlobalLock.class);
+            //Seata进行降级检查
             boolean localDisable = disable || (degradeCheck && degradeNum >= degradeCheckAllowTimes);
             if (!localDisable) {
                 if (globalTransactionalAnnotation != null) {
+                    //全局事务的处理
                     return handleGlobalTransaction(methodInvocation, globalTransactionalAnnotation);
                 } else if (globalLockAnnotation != null) {
                     return handleGlobalLock(methodInvocation, globalLockAnnotation);
@@ -178,6 +180,9 @@ public class GlobalTransactionalInterceptor implements ConfigurationChangeListen
         final GlobalTransactional globalTrxAnno) throws Throwable {
         boolean succeed = true;
         try {
+            /**
+             * 开启事务--> 绑定XID --> 执行业务代码 --> 通知TC提交
+             */
             return transactionalTemplate.execute(new TransactionalExecutor() {
                 @Override
                 public Object execute() throws Throwable {
@@ -227,6 +232,9 @@ public class GlobalTransactionalInterceptor implements ConfigurationChangeListen
             TransactionalExecutor.Code code = e.getCode();
             switch (code) {
                 case RollbackDone:
+                    /**
+                     * TM 回滚完成
+                     */
                     throw e.getOriginalException();
                 case BeginFailure:
                     succeed = false;
@@ -240,6 +248,9 @@ public class GlobalTransactionalInterceptor implements ConfigurationChangeListen
                     failureHandler.onRollbackFailure(e.getTransaction(), e.getOriginalException());
                     throw e.getOriginalException();
                 case RollbackRetrying:
+                    /**
+                     *TM 回滚完成重试
+                     */
                     failureHandler.onRollbackRetrying(e.getTransaction(), e.getOriginalException());
                     throw e.getOriginalException();
                 default:

@@ -32,7 +32,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Template of executing business logic with a global transaction.
- *
+ *  全局事务业务执行模版
  * @author sharajava
  */
 public class TransactionalTemplate {
@@ -53,11 +53,15 @@ public class TransactionalTemplate {
         if (txInfo == null) {
             throw new ShouldNeverHappenException("transactionInfo does not exist");
         }
+        //通过XID查看当前事务是否存在，如果存在则是RM节点，不存在则为TM
         // 1.1 Get current transaction, if not null, the tx role is 'GlobalTransactionRole.Participant'.
         GlobalTransaction tx = GlobalTransactionContext.getCurrent();
-
+        //默认是REQUIRED
         // 1.2 Handle the transaction propagation.
         Propagation propagation = txInfo.getPropagation();
+        /**
+         * 如果某些事务隔离级别设置为不开启事务的，就将XID 进行解绑，并且将XID临时保存在此
+         */
         SuspendedResourcesHolder suspendedResourcesHolder = null;
         try {
             switch (propagation) {
@@ -69,6 +73,9 @@ public class TransactionalTemplate {
                     // Execute without transaction and return.
                     return business.execute();
                 case REQUIRES_NEW:
+                    /**
+                     * 开启一个新的全局事务
+                     */
                     // If transaction is existing, suspend it, and then begin new transaction.
                     if (existingTransaction(tx)) {
                         suspendedResourcesHolder = tx.suspend();
@@ -77,8 +84,12 @@ public class TransactionalTemplate {
                     // Continue and execute with new transaction
                     break;
                 case SUPPORTS:
+                    /**
+                     * 如果不存在事务就不用事务，存在就使用事务
+                     */
                     // If transaction is not existing, execute without transaction.
                     if (notExistingTransaction(tx)) {
+                        //不存在事务直接返回
                         return business.execute();
                     }
                     // Continue and execute with new transaction
@@ -107,16 +118,18 @@ public class TransactionalTemplate {
                 default:
                     throw new TransactionException("Not Supported Propagation:" + propagation);
             }
-
+            //创建TM 全局事务上下文 事务发起者
             // 1.3 If null, create new transaction with role 'GlobalTransactionRole.Launcher'.
             if (tx == null) {
                 tx = GlobalTransactionContext.createNew();
             }
-
+            //设置锁的重试次数 绑定到ThreadLocal中
             // set current tx config to holder
             GlobalLockConfig previousConfig = replaceGlobalLockConfig(txInfo);
 
             try {
+                //开启全局事务 下发XID
+                //如果是RM就不执行了
                 // 2. If the tx role is 'GlobalTransactionRole.Launcher', send the request of beginTransaction to TC,
                 //    else do nothing. Of course, the hooks will still be triggered.
                 beginTransaction(txInfo, tx);
@@ -126,11 +139,15 @@ public class TransactionalTemplate {
                     // Do Your Business
                     rs = business.execute();
                 } catch (Throwable ex) {
+                    /**
+                     * TM 在执行业务代码抛出异常时候，查看捕获到的异常是否需要回滚还是正常提交
+                     */
                     // 3. The needed business exception to rollback.
                     completeTransactionAfterThrowing(txInfo, tx, ex);
                     throw ex;
                 }
 
+                //用户业务正常执行 正常提交
                 // 4. everything is fine, commit.
                 commitTransaction(tx);
 
@@ -172,10 +189,20 @@ public class TransactionalTemplate {
         }
     }
 
+    /**
+     * 业务发生异常进行回滚
+     * @param txInfo Global注解上的内容
+     * @param tx
+     * @param originalException
+     * @throws TransactionalExecutor.ExecutionException
+     */
     private void completeTransactionAfterThrowing(TransactionInfo txInfo, GlobalTransaction tx, Throwable originalException) throws TransactionalExecutor.ExecutionException {
         //roll back
         if (txInfo != null && txInfo.rollbackOn(originalException)) {
             try {
+                /**
+                 * 给TC下发回滚命令
+                 */
                 rollbackTransaction(tx, originalException);
             } catch (TransactionException txe) {
                 // Failed to rollback
@@ -183,11 +210,17 @@ public class TransactionalTemplate {
                         TransactionalExecutor.Code.RollbackFailure, originalException);
             }
         } else {
+            //属于用户自定义的不拦截的异常时候，进行提交
             // not roll back on this exception, so commit
             commitTransaction(tx);
         }
     }
 
+    /**
+     * 提交事务
+     * @param tx
+     * @throws TransactionalExecutor.ExecutionException
+     */
     private void commitTransaction(GlobalTransaction tx) throws TransactionalExecutor.ExecutionException {
         try {
             triggerBeforeCommit();
@@ -209,6 +242,12 @@ public class TransactionalTemplate {
             ? TransactionalExecutor.Code.RollbackRetrying : TransactionalExecutor.Code.RollbackDone, originalException);
     }
 
+    /**
+     * 开启一个事务 并通知TC server 下发XIT
+     * @param txInfo
+     * @param tx
+     * @throws TransactionalExecutor.ExecutionException
+     */
     private void beginTransaction(TransactionInfo txInfo, GlobalTransaction tx) throws TransactionalExecutor.ExecutionException {
         try {
             triggerBeforeBegin();
